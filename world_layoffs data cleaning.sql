@@ -1,187 +1,236 @@
--- data cleaning of layoffs
+-- ==============================================
+-- WORLD LAYOFFS DATA CLEANING
+-- Dataset: World Layoffs (Raw)
+-- Tool: MySQL Workbench
+-- Author: Comfort Ike
+-- Date: June 2026
+-- Steps: 1) Remove Duplicates 2) Standardize Data
+--        3) Handle NULL/Blank Values 4) Remove Irrelevant Columns
+-- ==============================================
 
-select * from layoffs;
+-- View raw data before cleaning
+SELECT * FROM layoffs;
 
--- 1. remove duplicates
--- 2. standardize the data 
--- 3. null values or blank values
--- 4. remove irrelevant columns
-drop table layoffs_staging;
-drop table layoffs_staging2;
--- first step. create another  and insert everything fromraw data to the new table
-create table layoffs_staging like layoffs;
-select * from layoffs_staging;
+-- ==============================================
+-- STEP 1: CREATE STAGING TABLE
+-- Never work on raw data directly
+-- Always create a copy to preserve the original
+-- ==============================================
 
--- insert all data to new table
-insert layoffs_staging
-select * from layoffs;
+-- Create staging table with same structure as raw table
+CREATE TABLE layoffs_staging LIKE layoffs;
 
--- removing duplicates
-select *, row_number() over (partition by company, industry, total_laid_off, percentage_laid_off, `date`) as row_num
-from layoffs_staging;
+-- Insert all raw data into staging table
+INSERT INTO layoffs_staging
+SELECT * FROM layoffs;
 
--- create a duplicate cte
-with duplicate_cte as (select *, row_number() over (
-partition by company, location, industry, total_laid_off, percentage_laid_off, `date`, stage, country, funds_raised_millions) as row_num
-from layoffs_staging)
-select * from duplicate_cte 
-where row_num > 1;
+-- Verify data was inserted correctly
+SELECT * FROM layoffs_staging;
 
-with duplicate_cte as (select *, row_number() over (
-partition by company, location, industry, total_laid_off, percentage_laid_off, `date`, stage, country, funds_raised_millions) as row_num
-from layoffs_staging)
-delete from duplicate_cte 
-where row_num > 1;
-delete from duplicate_cte where row_num > 1; #this didnt work because its not updatable
--- so to delete duplicates we do this instead. create a new table by creating a copy of layoff_staging and inserting all values from layof staging into the new table
+-- ==============================================
+-- STEP 2: REMOVE DUPLICATES
+-- ==============================================
+
+-- First identify duplicates using ROW_NUMBER()
+-- Any row with row_num > 1 is a duplicate
+SELECT *, 
+  ROW_NUMBER() OVER (
+    PARTITION BY company, location, industry, 
+    total_laid_off, percentage_laid_off, `date`, 
+    stage, country, funds_raised_millions
+  ) AS row_num
+FROM layoffs_staging;
+
+-- View duplicates using CTE
+WITH duplicate_cte AS (
+  SELECT *, 
+    ROW_NUMBER() OVER (
+      PARTITION BY company, location, industry, 
+      total_laid_off, percentage_laid_off, `date`, 
+      stage, country, funds_raised_millions
+    ) AS row_num
+  FROM layoffs_staging
+)
+SELECT * FROM duplicate_cte
+WHERE row_num > 1;
+
+-- NOTE: Cannot delete directly from a CTE in MySQL
+-- Solution: Create a second staging table with row_num column
+-- Then delete rows where row_num > 1
+
+-- Create layoffs_staging2 with an added row_num column
 CREATE TABLE `layoffs_staging2` (
-  `company` text,
-  `location` text,
-  `industry` text,
-  `total_laid_off` int DEFAULT NULL,
-  `percentage_laid_off` text,
-  `date` text,
-  `stage` text,
-  `country` text,
-  `funds_raised_millions` int DEFAULT NULL,
-  `row_num` int
+  `company` TEXT,
+  `location` TEXT,
+  `industry` TEXT,
+  `total_laid_off` INT DEFAULT NULL,
+  `percentage_laid_off` TEXT,
+  `date` TEXT,
+  `stage` TEXT,
+  `country` TEXT,
+  `funds_raised_millions` INT DEFAULT NULL,
+  `row_num` INT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-select * from layoffs_staging2;
-insert into layoffs_staging2
-select *, row_number() over (
-partition by company, location, industry, total_laid_off, percentage_laid_off, `date`, stage, country, funds_raised_millions) as row_num
-from layoffs_staging
-;
-select *
-from layoffs_staging2 
-where row_num > 1;
+-- Insert data with row numbers into staging2
+INSERT INTO layoffs_staging2
+SELECT *, 
+  ROW_NUMBER() OVER (
+    PARTITION BY company, location, industry, 
+    total_laid_off, percentage_laid_off, `date`, 
+    stage, country, funds_raised_millions
+  ) AS row_num
+FROM layoffs_staging;
 
-delete from layoffs_staging2 where row_num > 1;
+-- Verify duplicates are visible
+SELECT * FROM layoffs_staging2
+WHERE row_num > 1;
 
-select *
-from layoffs_staging2
-where row_num > 1;
-select *
-from layoffs_staging2;
-#duplicates are removed
+-- Delete all duplicate rows
+DELETE FROM layoffs_staging2
+WHERE row_num > 1;
 
--- standardizing data means finding issues in your data and fixing it
-select company, trim(company)
-from layoffs_staging2;
+-- Confirm duplicates have been removed
+SELECT * FROM layoffs_staging2
+WHERE row_num > 1;
 
-update layoffs_staging2
-set company = trim(company);
+-- ==============================================
+-- STEP 3: STANDARDIZE THE DATA
+-- Fix inconsistencies in text, spelling and formats
+-- ==============================================
 
-select distinct industry
-from layoffs_staging2
-order by 1; # 1 represents the first column
+-- 3a. Trim whitespace from company names
+SELECT company, TRIM(company)
+FROM layoffs_staging2;
 
-#from the industry data there has been some discrepancies in the spelling of crypto and cryptocurrency though they are on and same thing
-#so it has to be fixed so that it wont be a problem during visualization
+UPDATE layoffs_staging2
+SET company = TRIM(company);
 
-select * from layoffs_staging2
-where industry like 'crypto%';
+-- 3b. Fix industry name inconsistencies
+-- Finding: 'Crypto' and 'Cryptocurrency' refer to same industry
+SELECT DISTINCT industry
+FROM layoffs_staging2
+ORDER BY 1;
 
-update layoffs_staging2
-set industry = 'crypto'
-where industry like 'crypto%';
+-- View all crypto variations
+SELECT * FROM layoffs_staging2
+WHERE industry LIKE 'Crypto%';
 
-select distinct location 
-from layoffs_staging2
-order by 1;
+-- Standardize all crypto variations to 'Crypto'
+UPDATE layoffs_staging2
+SET industry = 'Crypto'
+WHERE industry LIKE 'Crypto%';
 
-select distinct country, trim(trailing '.' from country) as trailed_country
-from layoffs_staging2
-order by 1;
+-- 3c. Fix country name inconsistencies
+-- Finding: 'United States' and 'United States.' are the same country
+SELECT DISTINCT country, TRIM(TRAILING '.' FROM country) AS trimmed_country
+FROM layoffs_staging2
+ORDER BY 1;
 
-update layoffs_staging2
-set country = trim(trailing '.' from country) 
-where country like 'united states%';
+-- Remove trailing period from United States
+UPDATE layoffs_staging2
+SET country = TRIM(TRAILING '.' FROM country)
+WHERE country LIKE 'United States%';
 
-select distinct country
-from layoffs_staging2
-order by 1;
+-- Verify country names are now consistent
+SELECT DISTINCT country
+FROM layoffs_staging2
+ORDER BY 1;
 
-select `date`,
-str_to_date(`date`, '%m/%d/%Y') # helps change strings to date s
-from layoffs_staging2;
+-- 3d. Convert date column from TEXT to proper DATE format
+-- Finding: Date was stored as text (MM/DD/YYYY) — needs conversion
+SELECT `date`,
+  STR_TO_DATE(`date`, '%m/%d/%Y') AS formatted_date
+FROM layoffs_staging2;
 
-update layoffs_staging2
-set `date` = str_to_date(`date`, '%m/%d/%Y');
+-- Update date values to proper date format
+UPDATE layoffs_staging2
+SET `date` = STR_TO_DATE(`date`, '%m/%d/%Y');
 
-select `date`
-from layoffs_staging2;
--- changing the character of date which was a text to date
-alter table layoffs_staging2
-modify column `date` date;
+-- Change column data type from TEXT to DATE
+ALTER TABLE layoffs_staging2
+MODIFY COLUMN `date` DATE;
 
--- working with nulls and blank values
-select *
-from layoffs_staging2
-where total_laid_off is null
-and percentage_laid_off is null;
+-- Verify date column is now properly formatted
+SELECT `date` FROM layoffs_staging2;
 
-select *
-from layoffs_staging2
-where industry is null or 
-industry = '';
+-- ==============================================
+-- STEP 4: HANDLE NULL AND BLANK VALUES
+-- ==============================================
 
-select * from layoffs_staging2
-where company = 'airbnb';
+-- 4a. Identify rows where both key metrics are NULL
+-- These rows have no useful data and can be removed later
+SELECT *
+FROM layoffs_staging2
+WHERE total_laid_off IS NULL
+AND percentage_laid_off IS NULL;
 
-select * from layoffs_staging2 t1
-join #selfjoin
-layoffs_staging2 t2
-	on t1.company = t2.company
-    and t1.location = t2.location
-where (t1.industry is null or t1.industry = '')
-and t2.industry is not null;
+-- 4b. Find rows with NULL or blank industry values
+SELECT *
+FROM layoffs_staging2
+WHERE industry IS NULL
+OR industry = '';
 
-select t1.industry, t2.industry 
-from layoffs_staging2  t1
-join #selfjoin
-layoffs_staging2 t2
-	on t1.company = t2.company
-    and t1.location = t2.location
-where (t1.industry is null or t1.industry = '')
-and t2.industry is not null;
+-- Example: Airbnb has missing industry — check if other Airbnb rows have it
+SELECT * FROM layoffs_staging2
+WHERE company = 'Airbnb';
 
-update layoffs_staging2 t1
-join layoffs_staging2 t2
-	on t1.company = t2.company
-set t1.industry = t2.industry
-where t1.industry is null 
-and t2.industry is not null;
+-- 4c. Use self join to fill in missing industry values
+-- Logic: If same company and location has industry elsewhere, use that value
+SELECT t1.industry, t2.industry
+FROM layoffs_staging2 t1
+JOIN layoffs_staging2 t2
+  ON t1.company = t2.company
+  AND t1.location = t2.location
+WHERE (t1.industry IS NULL OR t1.industry = '')
+AND t2.industry IS NOT NULL;
 
+-- First convert blank strings to NULL for consistency
+UPDATE layoffs_staging2
+SET industry = NULL
+WHERE industry = '';
 
-update layoffs_staging2
-set industry = null
-where industry = '';
+-- Now populate NULL industry values using self join
+UPDATE layoffs_staging2 t1
+JOIN layoffs_staging2 t2
+  ON t1.company = t2.company
+SET t1.industry = t2.industry
+WHERE t1.industry IS NULL
+AND t2.industry IS NOT NULL;
 
-select t1.industry, t2.industry 
-from layoffs_staging2  t1
-join #selfjoin
-layoffs_staging2 t2
-	on t1.company = t2.company
-    and t1.location = t2.location
-where (t1.industry is null or t1.industry = '')
-and t2.industry is not null;
+-- Verify industry NULLs have been filled where possible
+SELECT t1.industry, t2.industry
+FROM layoffs_staging2 t1
+JOIN layoffs_staging2 t2
+  ON t1.company = t2.company
+  AND t1.location = t2.location
+WHERE (t1.industry IS NULL OR t1.industry = '')
+AND t2.industry IS NOT NULL;
 
--- removing irrelevant colunms and rows
-select *
-from layoffs_staging2
-where total_laid_off is null
-and percentage_laid_off is null;
+-- ==============================================
+-- STEP 5: REMOVE IRRELEVANT ROWS AND COLUMNS
+-- ==============================================
 
-delete
-from layoffs_staging2
-where total_laid_off is null
-and percentage_laid_off is null;
+-- 5a. Remove rows where both total_laid_off 
+-- and percentage_laid_off are NULL
+-- These rows provide no analytical value
+SELECT *
+FROM layoffs_staging2
+WHERE total_laid_off IS NULL
+AND percentage_laid_off IS NULL;
 
--- removing a column from a table
-alter table  layoffs_staging2
-drop column row_num;
+DELETE FROM layoffs_staging2
+WHERE total_laid_off IS NULL
+AND percentage_laid_off IS NULL;
 
-select * from layoffs_staging2;
+-- 5b. Drop the row_num column — no longer needed
+-- It was only used to identify and remove duplicates
+ALTER TABLE layoffs_staging2
+DROP COLUMN row_num;
 
+-- ==============================================
+-- FINAL CHECK: VIEW CLEANED DATASET
+-- ==============================================
+
+-- Dataset is now clean and ready for analysis
+SELECT * FROM layoffs_staging2;
