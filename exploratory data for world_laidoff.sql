@@ -1,113 +1,156 @@
--- exploratoratory data analysis for world layoffs analysis
-select * from layoffs_staging2;
+-- ==============================================
+-- WORLD LAYOFFS EXPLORATORY DATA ANALYSIS (EDA)
+-- Dataset: World Layoffs (2020-2023)
+-- Tool: MySQL Workbench
+-- Author: Comfort Ike
+-- Date: June 2026
+-- ==============================================
 
--- the maximum of total laid off and percentage 
-# after running the query i have found that the maximum amount of laid_off staffs is 12,000
-# with a percentage laid of of 1. does that mean that all the staffs where laid off in a period of 3 years?
-select max(total_laid_off), max(percentage_laid_off)
-from layoffs_staging2;
+-- ==============================================
+-- SECTION 1: OVERVIEW
+-- ==============================================
 
--- getting the full details of all the industry whose percentage laid off is 1
-select *
-from layoffs_staging2
-where percentage_laid_off = 1
-order by total_laid_off desc;
+-- View the full cleaned dataset
+SELECT * FROM layoffs_staging2;
 
--- from the data it was found that 116 ccompanies laid off all their employees
-with all_percentage_laidoff as(select *
-from layoffs_staging2
-where percentage_laid_off = 1
-order by total_laid_off desc)
-select count(*) from all_percentage_laidoff;
+-- ==============================================
+-- SECTION 2: HIGH LEVEL SUMMARY
+-- ==============================================
 
--- this is to see the highest funding recieved by the highest laidoff companies which was in te britishvolt company with funds of 2.4 million dollars
-select *
-from layoffs_staging2
-where percentage_laid_off = 1
-order by funds_raised_millions desc;
+-- Finding: Maximum single layoff event was 12,000 employees
+-- A percentage_laid_off of 1 means 100% of staff were laid off
+SELECT MAX(total_laid_off), MAX(percentage_laid_off)
+FROM layoffs_staging2;
 
--- finding the total laid off in each company 
-select company, sum(total_laid_off)
-from layoffs_staging2
-group by company
-order by 2 desc; 
+-- Finding: Layoffs data spans from 2020-03-11 to 2023-03-06 (3 years)
+SELECT MIN(`date`), MAX(`date`)
+FROM layoffs_staging2;
 
--- ordering by total_laid off
-select *
-from layoffs_staging2
-where percentage_laid_off = 1
-order by total_laid_off desc;
+-- ==============================================
+-- SECTION 3: COMPANIES THAT SHUT DOWN (100% LAYOFF)
+-- ==============================================
 
--- getting the date of when the layoff started and when it stopped from our source
-# layoff started in 2020-03-11 to 2023-03-06
-select min(`date`), max(`date`)
-from layoffs_staging2;
+-- Finding: 116 companies laid off 100% of their employees
+WITH all_percentage_laidoff AS (
+  SELECT *
+  FROM layoffs_staging2
+  WHERE percentage_laid_off = 1
+)
+SELECT COUNT(*) AS total_shutdowns
+FROM all_percentage_laidoff;
 
-select industry, sum(total_laid_off)
-from layoffs_staging2
-group by industry
-order by 2 desc;
-
-select country, sum(total_laid_off)
-from layoffs_staging2
-group by country
-order by 2 desc;
-
-select year(`date`), sum(total_laid_off)
-from layoffs_staging2
-group by year(`date`)
-order by 2 desc;
-
-select date, sum(total_laid_off)
-from layoffs_staging2
-group by `date`
-order by 2 desc;
-
-select stage, sum(total_laid_off)
-from layoffs_staging2
-group by stage
-order by 2 desc;
-
-select year(`date`), sum(total_laid_off)
-from layoffs_staging2
-group by year(`date`)
-order by 2 desc;
-
-select substring(`date`, 1,7) as `month`, sum(total_laid_off)
-from layoffs_staging2 
-where substring(`date`, 1, 7)
-group by `month`
-order by 1 asc;
-
-with rolling_total as (
-select substring(`date`, 1,7) as `month`, sum(total_laid_off) as total_off
-from layoffs_staging2 
-where substring(`date`, 1, 7)
-group by `month`
-order by 1 asc)
-select `month`, total_off, sum(total_off) over (order by `month`) as rolling_total
-from rolling_total;
-
-select company, YEAR(`date`), sum(total_laid_off) AS total_laid_off
-from layoffs_staging2
-group by company, year(`date`)
-order by total_laid_off ; 
-
-SELECT company, YEAR(`date`), SUM(total_laid_off) AS total_laid_off
+-- View all companies that shut down, ordered by size of layoff
+SELECT *
 FROM layoffs_staging2
-GROUP BY company, YEAR(`date`)
+WHERE percentage_laid_off = 1
 ORDER BY total_laid_off DESC;
 
-with company_year (company, years, total_laid_off) as 
-(SELECT company, YEAR(`date`), SUM(total_laid_off) AS total_laid_off
+-- Finding: BritishVolt had the highest funding ($2.4 billion) 
+-- among companies that fully shut down
+SELECT *
 FROM layoffs_staging2
-GROUP BY company, YEAR(`date`)
-) , company_year_rank as 
-(select *,
-dense_rank() over (partition by years order by total_laid_off desc) as ranking
-from company_year
-where years is not null
+WHERE percentage_laid_off = 1
+ORDER BY funds_raised_millions DESC;
+
+-- ==============================================
+-- SECTION 4: LAYOFFS BY COMPANY
+-- ==============================================
+
+-- Finding: Amazon, Google and Meta had the highest total layoffs
+SELECT company, SUM(total_laid_off) AS total_laid_off
+FROM layoffs_staging2
+GROUP BY company
+ORDER BY 2 DESC;
+
+-- ==============================================
+-- SECTION 5: LAYOFFS BY INDUSTRY
+-- ==============================================
+
+-- Finding: Consumer and Retail industries were hit hardest
+SELECT industry, SUM(total_laid_off) AS total_laid_off
+FROM layoffs_staging2
+GROUP BY industry
+ORDER BY 2 DESC;
+
+-- ==============================================
+-- SECTION 6: LAYOFFS BY COUNTRY
+-- ==============================================
+
+-- Finding: United States had by far the highest total layoffs
+SELECT country, SUM(total_laid_off) AS total_laid_off
+FROM layoffs_staging2
+GROUP BY country
+ORDER BY 2 DESC;
+
+-- ==============================================
+-- SECTION 7: LAYOFFS BY YEAR
+-- ==============================================
+
+-- Finding: 2022 had the highest layoffs overall
+SELECT YEAR(`date`) AS year, SUM(total_laid_off) AS total_laid_off
+FROM layoffs_staging2
+GROUP BY YEAR(`date`)
+ORDER BY 2 DESC;
+
+-- ==============================================
+-- SECTION 8: LAYOFFS BY COMPANY STAGE
+-- ==============================================
+
+-- Finding: Post-IPO companies had the highest layoffs
+SELECT stage, SUM(total_laid_off) AS total_laid_off
+FROM layoffs_staging2
+GROUP BY stage
+ORDER BY 2 DESC;
+
+-- ==============================================
+-- SECTION 9: MONTHLY LAYOFF TRENDS
+-- ==============================================
+
+-- Monthly breakdown of layoffs
+SELECT SUBSTRING(`date`, 1, 7) AS `month`, 
+  SUM(total_laid_off) AS total_laid_off
+FROM layoffs_staging2
+WHERE SUBSTRING(`date`, 1, 7) IS NOT NULL
+GROUP BY `month`
+ORDER BY 1 ASC;
+
+-- ==============================================
+-- SECTION 10: ROLLING TOTAL OF LAYOFFS
+-- ==============================================
+
+-- Finding: Shows cumulative growth of layoffs month by month
+WITH rolling_total AS (
+  SELECT SUBSTRING(`date`, 1, 7) AS `month`, 
+    SUM(total_laid_off) AS total_off
+  FROM layoffs_staging2
+  WHERE SUBSTRING(`date`, 1, 7) IS NOT NULL
+  GROUP BY `month`
+  ORDER BY 1 ASC
 )
-select *
-from company_year_rank
-where ranking <= 5;
+SELECT `month`, total_off,
+  SUM(total_off) OVER (ORDER BY `month`) AS rolling_total
+FROM rolling_total;
+
+-- ==============================================
+-- SECTION 11: TOP 5 COMPANIES WITH MOST LAYOFFS PER YEAR
+-- ==============================================
+
+-- Finding: Shows which companies dominated layoffs each year
+WITH company_year AS (
+  SELECT company, YEAR(`date`) AS years, 
+    SUM(total_laid_off) AS total_laid_off
+  FROM layoffs_staging2
+  GROUP BY company, YEAR(`date`)
+),
+company_year_rank AS (
+  SELECT *,
+    DENSE_RANK() OVER (
+      PARTITION BY years 
+      ORDER BY total_laid_off DESC
+    ) AS ranking
+  FROM company_year
+  WHERE years IS NOT NULL
+)
+SELECT *
+FROM company_year_rank
+WHERE ranking <= 5;
